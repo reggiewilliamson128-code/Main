@@ -1,4 +1,5 @@
 try{[Microsoft.PowerShell.PSConsoleReadLine]::ClearHistory()}catch{}
+Start-Sleep -Seconds 1
 $h="$env:APPDATA\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt"
 New-Item -ItemType Directory -Force -Path (Split-Path $h) | Out-Null
 if(Test-Path $h){
