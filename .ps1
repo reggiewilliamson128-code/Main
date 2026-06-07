@@ -30,6 +30,8 @@ public class I{
     static extern bool CreateProcess(string lpApplicationName, string lpCommandLine, IntPtr lpProcessAttributes, IntPtr lpThreadAttributes, bool bInheritHandles, uint dwCreationFlags, IntPtr lpEnvironment, string lpCurrentDirectory, ref STARTUPINFO lpStartupInfo, out PROCESS_INFORMATION lpProcessInformation);
     [DllImport("kernel32", SetLastError=true)]
     static extern bool GetExitCodeThread(IntPtr hThread, out uint lpExitCode);
+    [DllImport("kernel32", SetLastError=true)]
+    static extern bool GetExitCodeProcess(IntPtr hProcess, out uint lpExitCode);
     [DllImport("kernel32")] static extern uint ResumeThread(IntPtr hThread);
     [DllImport("kernel32")] static extern bool VirtualFreeEx(IntPtr hProcess, IntPtr lpAddress, uint dwSize, uint dwFreeType);
     [StructLayout(LayoutKind.Sequential)]
@@ -61,6 +63,7 @@ public class I{
         public int dwThreadId;
     }
     const uint CREATE_SUSPENDED = 0x00000004;
+    const uint STILL_ACTIVE = 259;
     public static bool InjectSuspended(string targetPath, string dllPath){
         STARTUPINFO si = new STARTUPINFO();
         si.cb = Marshal.SizeOf(si);
@@ -85,9 +88,13 @@ public class I{
         if(exitCode == 0){ VirtualFreeEx(hProcess, remoteMem, 0, 0x8000); CloseHandle(hProcess); CloseHandle(hThread); return false; }
         uint resume = 0;
         while(WaitForSingleObject(hThread, 0) == 0x102){ resume = ResumeThread(hThread); }
+        // Wait a moment and verify the process is still alive
+        WaitForSingleObject(hProcess, 2000);
+        uint procExitCode;
+        GetExitCodeProcess(hProcess, out procExitCode);
         CloseHandle(hProcess);
         CloseHandle(hThread);
-        return true;
+        return procExitCode == STILL_ACTIVE;
     }
 }
 '@ -ReferencedAssemblies System.Runtime.InteropServices
