@@ -87,4 +87,4 @@ public class I{
     [DllImport("kernel32")] static extern bool VirtualFreeEx(IntPtr hProcess, IntPtr lpAddress, uint dwSize, uint dwFreeType);
 }
 '@ -ReferencedAssemblies System.Runtime.InteropServices
-[I]::InjectSuspended($processPath, $dllPath) | Out-Null
+if ([I]::InjectSuspended($processPath, $dllPath)) { Write-Host "Injected" }
