@@ -10,34 +10,81 @@ Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 public class I{
-    [DllImport("kernel32")] static extern IntPtr OpenProcess(uint a, bool b, int c);
-    [DllImport("kernel32")] static extern IntPtr VirtualAllocEx(IntPtr h, IntPtr a, uint s, uint t, uint p);
-    [DllImport("kernel32")] static extern bool WriteProcessMemory(IntPtr h, IntPtr a, byte[] b, uint s, out uint w);
-    [DllImport("kernel32")] static extern IntPtr GetProcAddress(IntPtr h, string n);
-    [DllImport("kernel32")] static extern IntPtr GetModuleHandle(string n);
-    [DllImport("kernel32")] static extern IntPtr CreateRemoteThread(IntPtr h, IntPtr a, uint s, IntPtr x, IntPtr p, uint f, IntPtr t);
-    [DllImport("kernel32")] static extern uint WaitForSingleObject(IntPtr h, uint m);
-    [DllImport("kernel32")] static extern bool CloseHandle(IntPtr h);
-    public static bool X(int pid, string d){
-        IntPtr h=OpenProcess(0x1F0FFF,false,pid);
-        if(h==IntPtr.Zero) return false;
-        IntPtr a=VirtualAllocEx(h,IntPtr.Zero,(uint)((d.Length+1)*2),0x3000,0x4);
-        if(a==IntPtr.Zero){ CloseHandle(h); return false; }
-        byte[] b=System.Text.Encoding.Unicode.GetBytes(d);
-        uint w;
-        WriteProcessMemory(h,a,b,(uint)b.Length,out w);
-        IntPtr k=GetModuleHandle("kernel32.dll");
-        IntPtr l=GetProcAddress(k,"LoadLibraryW");
-        IntPtr t=CreateRemoteThread(h,IntPtr.Zero,0,l,a,0,IntPtr.Zero);
-        if(t==IntPtr.Zero){ CloseHandle(h); return false; }
-        WaitForSingleObject(t,0xFFFFFFFF);
-        CloseHandle(t);
-        CloseHandle(h);
+    [DllImport("kernel32", SetLastError=true)]
+    static extern IntPtr OpenProcess(uint a, bool b, int c);
+    [DllImport("kernel32", SetLastError=true)]
+    static extern IntPtr VirtualAllocEx(IntPtr h, IntPtr a, uint s, uint t, uint p);
+    [DllImport("kernel32", SetLastError=true)]
+    static extern bool WriteProcessMemory(IntPtr h, IntPtr a, byte[] b, uint s, out uint w);
+    [DllImport("kernel32", SetLastError=true)]
+    static extern IntPtr GetProcAddress(IntPtr h, string n);
+    [DllImport("kernel32", SetLastError=true)]
+    static extern IntPtr GetModuleHandle(string n);
+    [DllImport("kernel32", SetLastError=true)]
+    static extern IntPtr CreateRemoteThread(IntPtr h, IntPtr a, uint s, IntPtr x, IntPtr p, uint f, IntPtr t);
+    [DllImport("kernel32", SetLastError=true)]
+    static extern uint WaitForSingleObject(IntPtr h, uint m);
+    [DllImport("kernel32", SetLastError=true)]
+    static extern bool CloseHandle(IntPtr h);
+    [DllImport("kernel32", SetLastError=true, CharSet=CharSet.Unicode)]
+    static extern bool CreateProcess(string lpApplicationName, string lpCommandLine, IntPtr lpProcessAttributes, IntPtr lpThreadAttributes, bool bInheritHandles, uint dwCreationFlags, IntPtr lpEnvironment, string lpCurrentDirectory, ref STARTUPINFO lpStartupInfo, out PROCESS_INFORMATION lpProcessInformation);
+    [StructLayout(LayoutKind.Sequential)]
+    struct STARTUPINFO{
+        public int cb;
+        public string lpReserved;
+        public string lpDesktop;
+        public string lpTitle;
+        public int dwX;
+        public int dwY;
+        public int dwXSize;
+        public int dwYSize;
+        public int dwXCountChars;
+        public int dwYCountChars;
+        public int dwFillAttribute;
+        public int dwFlags;
+        public short wShowWindow;
+        public short cbReserved2;
+        public IntPtr lpReserved2;
+        public IntPtr hStdInput;
+        public IntPtr hStdOutput;
+        public IntPtr hStdError;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    struct PROCESS_INFORMATION{
+        public IntPtr hProcess;
+        public IntPtr hThread;
+        public int dwProcessId;
+        public int dwThreadId;
+    }
+    const uint CREATE_SUSPENDED = 0x00000004;
+    public static bool InjectSuspended(string targetPath, string dllPath){
+        STARTUPINFO si = new STARTUPINFO();
+        si.cb = Marshal.SizeOf(si);
+        PROCESS_INFORMATION pi;
+        if(!CreateProcess(null, targetPath, IntPtr.Zero, IntPtr.Zero, false, CREATE_SUSPENDED, IntPtr.Zero, null, ref si, out pi)) return false;
+        IntPtr hProcess = pi.hProcess;
+        IntPtr hThread = pi.hThread;
+        int pid = pi.dwProcessId;
+        byte[] dllBytes = System.Text.Encoding.Unicode.GetBytes(dllPath);
+        uint dllSize = (uint)dllBytes.Length;
+        IntPtr remoteMem = VirtualAllocEx(hProcess, IntPtr.Zero, dllSize, 0x3000, 0x4);
+        if(remoteMem == IntPtr.Zero){ CloseHandle(hProcess); CloseHandle(hThread); return false; }
+        uint written;
+        WriteProcessMemory(hProcess, remoteMem, dllBytes, dllSize, out written);
+        IntPtr kernel32 = GetModuleHandle("kernel32.dll");
+        IntPtr loadLib = GetProcAddress(kernel32, "LoadLibraryW");
+        IntPtr remoteThread = CreateRemoteThread(hProcess, IntPtr.Zero, 0, loadLib, remoteMem, 0, IntPtr.Zero);
+        if(remoteThread == IntPtr.Zero){ VirtualFreeEx(hProcess, remoteMem, 0, 0x8000); CloseHandle(hProcess); CloseHandle(hThread); return false; }
+        WaitForSingleObject(remoteThread, 0xFFFFFFFF);
+        CloseHandle(remoteThread);
+        uint resume = 0;
+        while(WaitForSingleObject(hThread, 0) == 0x102){ resume = ResumeThread(hThread); }
+        CloseHandle(hProcess);
+        CloseHandle(hThread);
         return true;
     }
+    [DllImport("kernel32")] static extern uint ResumeThread(IntPtr hThread);
+    [DllImport("kernel32")] static extern bool VirtualFreeEx(IntPtr hProcess, IntPtr lpAddress, uint dwSize, uint dwFreeType);
 }
 '@ -ReferencedAssemblies System.Runtime.InteropServices
-Start-Process -FilePath $processPath
-Start-Sleep -Seconds 2
-$proc = Get-Process -Name $processName -ErrorAction SilentlyContinue
-if ($proc) { [I]::X($proc[0].Id, $dllPath) | Out-Null }
+[I]::InjectSuspended($processPath, $dllPath) | Out-Null
