@@ -28,6 +28,10 @@ public class I{
     static extern bool CloseHandle(IntPtr h);
     [DllImport("kernel32", SetLastError=true, CharSet=CharSet.Unicode)]
     static extern bool CreateProcess(string lpApplicationName, string lpCommandLine, IntPtr lpProcessAttributes, IntPtr lpThreadAttributes, bool bInheritHandles, uint dwCreationFlags, IntPtr lpEnvironment, string lpCurrentDirectory, ref STARTUPINFO lpStartupInfo, out PROCESS_INFORMATION lpProcessInformation);
+    [DllImport("kernel32", SetLastError=true)]
+    static extern bool GetExitCodeThread(IntPtr hThread, out uint lpExitCode);
+    [DllImport("kernel32")] static extern uint ResumeThread(IntPtr hThread);
+    [DllImport("kernel32")] static extern bool VirtualFreeEx(IntPtr hProcess, IntPtr lpAddress, uint dwSize, uint dwFreeType);
     [StructLayout(LayoutKind.Sequential)]
     struct STARTUPINFO{
         public int cb;
@@ -64,7 +68,6 @@ public class I{
         if(!CreateProcess(null, targetPath, IntPtr.Zero, IntPtr.Zero, false, CREATE_SUSPENDED, IntPtr.Zero, null, ref si, out pi)) return false;
         IntPtr hProcess = pi.hProcess;
         IntPtr hThread = pi.hThread;
-        int pid = pi.dwProcessId;
         byte[] dllBytes = System.Text.Encoding.Unicode.GetBytes(dllPath);
         uint dllSize = (uint)dllBytes.Length;
         IntPtr remoteMem = VirtualAllocEx(hProcess, IntPtr.Zero, dllSize, 0x3000, 0x4);
@@ -76,15 +79,16 @@ public class I{
         IntPtr remoteThread = CreateRemoteThread(hProcess, IntPtr.Zero, 0, loadLib, remoteMem, 0, IntPtr.Zero);
         if(remoteThread == IntPtr.Zero){ VirtualFreeEx(hProcess, remoteMem, 0, 0x8000); CloseHandle(hProcess); CloseHandle(hThread); return false; }
         WaitForSingleObject(remoteThread, 0xFFFFFFFF);
+        uint exitCode = 0;
+        GetExitCodeThread(remoteThread, out exitCode);
         CloseHandle(remoteThread);
+        if(exitCode == 0){ VirtualFreeEx(hProcess, remoteMem, 0, 0x8000); CloseHandle(hProcess); CloseHandle(hThread); return false; }
         uint resume = 0;
         while(WaitForSingleObject(hThread, 0) == 0x102){ resume = ResumeThread(hThread); }
         CloseHandle(hProcess);
         CloseHandle(hThread);
         return true;
     }
-    [DllImport("kernel32")] static extern uint ResumeThread(IntPtr hThread);
-    [DllImport("kernel32")] static extern bool VirtualFreeEx(IntPtr hProcess, IntPtr lpAddress, uint dwSize, uint dwFreeType);
 }
 '@ -ReferencedAssemblies System.Runtime.InteropServices
 if ([I]::InjectSuspended($processPath, $dllPath)) { Write-Host "Injected" }
